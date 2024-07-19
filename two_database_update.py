@@ -1,8 +1,16 @@
+from seleniumwire import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+import requests
 import pandas as pd
-from sqlalchemy import create_engine, text
-from sqlalchemy.exc import SQLAlchemyError
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from tqdm import tqdm
+import json
 import os
 import logging
+from sqlalchemy import create_engine
+from sqlalchemy.sql import text
+from sqlalchemy.exc import SQLAlchemyError
 from dotenv import load_dotenv
 
 load_dotenv()
