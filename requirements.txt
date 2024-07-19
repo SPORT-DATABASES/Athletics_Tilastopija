@@ -1,0 +1,8 @@
+seleniumwire
+selenium
+requests
+pandas
+tqdm
+sqlalchemy
+python-dotenv
+pyarrow
