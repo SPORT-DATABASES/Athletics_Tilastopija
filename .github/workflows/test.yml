@@ -16,12 +16,18 @@ jobs:
       with:
         python-version: '3.9'
 
-    - name: Install dependencies
+    - name: Install system dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y xvfb
+        sudo apt-get install -y xvfb libssl-dev
+
+    - name: Install Python dependencies
+      run: |
         python -m pip install --upgrade pip
-        pip install selenium==3.141.0 selenium-wire==4.5.4 requests blinker packaging pyOpenSSL
+        pip install blinker==1.4
+        pip install selenium==3.141.0
+        pip install selenium-wire==4.5.4
+        pip install requests packaging pyOpenSSL
 
     - name: Test network access
       run: |
