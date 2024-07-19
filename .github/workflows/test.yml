@@ -7,11 +7,6 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
-    services:
-      xvfb:
-        image: selenium/standalone-chrome
-        options: --shm-size 2g
-
     steps:
     - name: Checkout code
       uses: actions/checkout@v2
@@ -23,6 +18,8 @@ jobs:
 
     - name: Install dependencies
       run: |
+        sudo apt-get update
+        sudo apt-get install -y xvfb
         python -m pip install --upgrade pip
         pip install selenium-wire requests
 
@@ -35,7 +32,7 @@ jobs:
 
     - name: Run Selenium Wire script
       run: |
-        xvfb-run python -c "
+        xvfb-run -a python -c "
         from seleniumwire import webdriver
         from selenium.webdriver.common.by import By
         from selenium.webdriver.common.keys import Keys
