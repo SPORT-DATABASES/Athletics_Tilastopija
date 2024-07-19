@@ -113,7 +113,7 @@ def fetch_competition_data(competition_id, session, auth_token):
 # Part 4: Parallelizes the data fetching
 def parallel_fetch_competition_data(competition_ids, session, auth_token):
     all_results = []
-    with ThreadPoolExecutor(max_workers=50) as executor:
+    with ThreadPoolExecutor(max_workers=20) as executor:
         futures = {executor.submit(fetch_competition_data, comp_id, session, auth_token): comp_id for comp_id in competition_ids}
         for future in tqdm(as_completed(futures), total=len(futures), desc="Fetching competition data"):
             try:
@@ -142,6 +142,13 @@ load_dotenv()
 
 # Now deleting and inserting.  I needed conn.commit()
 
+
+
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Database connection details
 host = 'sportsdb-sports-database-for-web-scrapes.g.aivencloud.com'
 port = 16439
 user = 'avnadmin'
@@ -151,8 +158,15 @@ ca_cert_path = 'ca.pem'
 
 logger.info(f"Connecting to database at {host}:{port}, database: {database}, user: {user}")
 
-engine = create_engine(f'mysql+pymysql://{user}:{password}@{host}:{port}/{database}', connect_args={'ssl': {'ca': ca_cert_path}})
+# Database engine setup
+engine = create_engine(f'mysql+pymysql://{user}:{password}@{host}:{port}/{database}', 
+                       connect_args={'ssl': {'ca': ca_cert_path}})
 
+# Sample DataFrame setup
+# Assuming `results_df` is your DataFrame
+results_df = pd.DataFrame()  # Replace with your actual DataFrame loading logic
+
+# Rename columns
 results_df = results_df.rename(columns={
     'competitionId': 'Competition_ID',
     'competitionLong': 'Competition',
@@ -188,54 +202,60 @@ results_df['End_Date'] = pd.to_datetime(results_df['End_Date'], errors='coerce')
 results_df['Date_of_Birth'] = pd.to_datetime(results_df['Date_of_Birth'], format='%d %b %y', errors='coerce')
 
 min_date = results_df['Start_Date'].min()
-logger.info(f"Minimum Start_Date in results_df: {min_date}")  # Debugging statement
+logger.info(f"Minimum Start_Date in results_df: {min_date}")
 
-min_date_str = min_date.strftime('%Y-%m-%d')  # Formatting min_date as a string
-logger.info(f"Formatted min_date: {min_date_str}")  # Debugging statement
+min_date_str = min_date.strftime('%Y-%m-%d')
+logger.info(f"Formatted min_date: {min_date_str}")
 
-with engine.connect() as conn:
-    # Turn off SQL safe updates
-    conn.execute(text("SET SQL_SAFE_UPDATES = 0;"))
+try:
+    with engine.connect() as conn:
+        # Turn off SQL safe updates
+        conn.execute(text("SET SQL_SAFE_UPDATES = 0;"))
 
-    # Get total rows before deletion
-    total_rows_before = conn.execute(text("SELECT COUNT(*) FROM Tilastopija_results")).scalar()
-    print(f"Total rows in database before deletion: {total_rows_before}")
+        # Get total rows before deletion
+        total_rows_before = conn.execute(text("SELECT COUNT(*) FROM Tilastopija_results")).scalar()
+        print(f"Total rows in database before deletion: {total_rows_before}")
 
-    # Delete rows with Start_Date >= min_date
-    delete_query = text("DELETE FROM Tilastopija_results WHERE Start_Date >= :min_date")
-    result = conn.execute(delete_query, {'min_date': min_date_str})
-    rows_deleted = result.rowcount
-    print(f"Rows deleted from database: {rows_deleted}")
+        # Delete rows with Start_Date >= min_date
+        delete_query = text("DELETE FROM Tilastopija_results WHERE Start_Date >= :min_date")
+        result = conn.execute(delete_query, {'min_date': min_date_str})
+        rows_deleted = result.rowcount
+        print(f"Rows deleted from database: {rows_deleted}")
 
-    # Commit the deletion
-    conn.commit()
+        # Commit the deletion
+        conn.commit()
 
-    # Turn on SQL safe updates
-    conn.execute(text("SET SQL_SAFE_UPDATES = 1;"))
+        # Turn on SQL safe updates
+        conn.execute(text("SET SQL_SAFE_UPDATES = 1;"))
 
-    # Get total rows after deletion
-    total_rows_after = conn.execute(text("SELECT COUNT(*) FROM Tilastopija_results")).scalar()
-    print(f"Total rows in database after deletion: {total_rows_after}")
+        # Get total rows after deletion
+        total_rows_after = conn.execute(text("SELECT COUNT(*) FROM Tilastopija_results")).scalar()
+        print(f"Total rows in database after deletion: {total_rows_after}")
 
-    total_rows = len(results_df)
-    chunk_size = 1000
-    rows_inserted = 0
+        total_rows = len(results_df)
+        chunk_size = 1000
+        rows_inserted = 0
 
-    for start in range(0, total_rows, chunk_size):
-        end = min(start + chunk_size, total_rows)
-        batch = results_df.iloc[start:end]
-        batch.to_sql(name='Tilastopija_results', con=conn, if_exists='append', index=False)
-        print(f"Rows {start + 1} to {end} inserted into database")
-        rows_inserted += len(batch)
+        for start in range(0, total_rows, chunk_size):
+            end = min(start + chunk_size, total_rows)
+            batch = results_df.iloc[start:end]
+            batch.to_sql(name='Tilastopija_results', con=conn, if_exists='append', index=False)
+            print(f"Rows {start + 1} to {end} inserted into database")
+            rows_inserted += len(batch)
 
-    # Commit the insertion
-    conn.commit()
+        # Commit the insertion
+        conn.commit()
 
-    total_rows_after_insertion = conn.execute(text("SELECT COUNT(*) FROM Tilastopija_results")).scalar()
-    print(f"Total rows in database after insertion: {total_rows_after_insertion}")
+        total_rows_after_insertion = conn.execute(text("SELECT COUNT(*) FROM Tilastopija_results")).scalar()
+        print(f"Total rows in database after insertion: {total_rows_after_insertion}")
 
-print(f"Total rows inserted into database: {rows_inserted}")
-rows_added = rows_inserted - rows_deleted
-print(f"Total new rows added to database: {rows_added}")
+    print(f"Total rows inserted into database: {rows_inserted}")
+    rows_added = rows_inserted - rows_deleted
+    print(f"Total new rows added to database: {rows_added}")
 
-os.remove('update_page.json')
+except SQLAlchemyError as e:
+    logger.error(f"Error processing database operations: {e}")
+
+# Remove temporary file if it exists
+if os.path.exists('update_page.json'):
+    os.remove('update_page.json')
