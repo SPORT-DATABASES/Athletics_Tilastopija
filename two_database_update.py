@@ -60,7 +60,7 @@ try:
             logger.info(f"Rows deleted from database: {rows_deleted}")
 
             # Commit the deletion
-            transaction.commit()
+            # transaction.commit()
 
             # Turn on SQL safe updates
             conn.execute(text("SET SQL_SAFE_UPDATES = 1;"))
@@ -93,7 +93,7 @@ try:
                 rows_inserted += len(batch)
 
             # Commit the insertion
-            transaction.commit()
+            # transaction.commit()
 
             total_rows_after_insertion = conn.execute(text("SELECT COUNT(*) FROM Tilastopija_results")).scalar()
             logger.info(f"Total rows in database after insertion: {total_rows_after_insertion}")
