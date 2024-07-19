@@ -34,4 +34,23 @@ jobs:
         run: |
           Xvfb :99 -ac &
           sleep 5 # Give Xvfb some time to start
-          python Daily_update_Tila.py
+          python One_get_Tila_info.py
+
+      - name: Commit results
+        run: |
+          git config --global user.name 'github-actions'
+          git config --global user.email 'github-actions@github.com'
+          git add results_df.parquet results_df.csv
+          git commit -m 'Add results_df Parquet and CSV files'
+          git push
+
+      - name: Set up environment variables
+        env:
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+        run: echo "DB_PASSWORD is set"
+
+      - name: Run database operations
+        env:
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+        run: |
+          python two_database_update.py
