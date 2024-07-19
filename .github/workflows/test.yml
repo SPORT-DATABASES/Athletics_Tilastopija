@@ -27,7 +27,7 @@ jobs:
         pip install blinker==1.4
         pip install selenium==3.141.0
         pip install selenium-wire==4.5.4
-        pip install requests packaging pyOpenSSL
+        pip install requests packaging pyOpenSSL==19.1.0
 
     - name: Test network access
       run: |
