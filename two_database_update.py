@@ -85,7 +85,7 @@ try:
         for start in range(0, total_rows, chunk_size):
             end = min(start + chunk_size, total_rows)
             batch = results_df.iloc[start:end]
-            batch.to_sql(name='Tilastopija_results', con=conn, if_exists='append', index=False)
+            batch.to_sql(name='Tilastopija_results', con=conn, if_exists='append', index=False,method='multi')
             logger.info(f"Rows {start + 1} to {end} inserted into database")
             rows_inserted += len(batch)
 
