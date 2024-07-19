@@ -21,7 +21,7 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y xvfb
         python -m pip install --upgrade pip
-        pip install selenium==3.141.0 selenium-wire==4.5.4 requests blinker==1.4 packaging
+        pip install selenium==3.141.0 selenium-wire==4.5.4 requests blinker==1.4 packaging pyOpenSSL==19.0.0
 
     - name: Test network access
       run: |
