@@ -201,6 +201,8 @@ logger.info(f"Minimum Start_Date in results_df: {min_date}")
 min_date_str = min_date.strftime('%Y-%m-%d')
 logger.info(f"Formatted min_date: {min_date_str}")
 
+print("Now deleting from the database")
+
 try:
     with engine.connect() as conn:
         # Turn off SQL safe updates
@@ -208,13 +210,13 @@ try:
 
         # Get total rows before deletion
         total_rows_before = conn.execute(text("SELECT COUNT(*) FROM Tilastopija_results")).scalar()
-        print(f"Total rows in database before deletion: {total_rows_before}")
+        logger.info(f"Total rows in database before deletion: {total_rows_before}")
 
         # Delete rows with Start_Date >= min_date
         delete_query = text("DELETE FROM Tilastopija_results WHERE Start_Date >= :min_date")
         result = conn.execute(delete_query, {'min_date': min_date_str})
         rows_deleted = result.rowcount
-        print(f"Rows deleted from database: {rows_deleted}")
+        logger.info(f"Rows deleted from database: {rows_deleted}")
 
         # Commit the deletion
         conn.commit()
@@ -224,32 +226,50 @@ try:
 
         # Get total rows after deletion
         total_rows_after = conn.execute(text("SELECT COUNT(*) FROM Tilastopija_results")).scalar()
-        print(f"Total rows in database after deletion: {total_rows_after}")
+        logger.info(f"Total rows in database after deletion: {total_rows_after}")
 
-        total_rows = len(results_df)
-        chunk_size = 1000
-        rows_inserted = 0
+except SQLAlchemyError as e:
+    logger.error(f"Error processing database operations: {e}")
+finally:
+    engine.dispose()
 
+# Insertion
+
+# Database engine setup for insertion
+
+print("Now inserting into database")
+
+engine = create_engine(f'mysql+pymysql://{user}:{password}@{host}:{port}/{database}', 
+                       connect_args={'ssl': {'ca': ca_cert_path}})
+
+try:
+    total_rows = len(results_df)
+    chunk_size = 1000
+    rows_inserted = 0
+
+    with engine.connect() as conn:
         for start in range(0, total_rows, chunk_size):
             end = min(start + chunk_size, total_rows)
             batch = results_df.iloc[start:end]
             batch.to_sql(name='Tilastopija_results', con=conn, if_exists='append', index=False)
-            print(f"Rows {start + 1} to {end} inserted into database")
+            logger.info(f"Rows {start + 1} to {end} inserted into database")
             rows_inserted += len(batch)
 
         # Commit the insertion
         conn.commit()
 
         total_rows_after_insertion = conn.execute(text("SELECT COUNT(*) FROM Tilastopija_results")).scalar()
-        print(f"Total rows in database after insertion: {total_rows_after_insertion}")
+        logger.info(f"Total rows in database after insertion: {total_rows_after_insertion}")
 
-    print(f"Total rows inserted into database: {rows_inserted}")
+    logger.info(f"Total rows inserted into database: {rows_inserted}")
     rows_added = rows_inserted - rows_deleted
-    print(f"Total new rows added to database: {rows_added}")
+    logger.info(f"Total new rows added to database: {rows_added}")
 
 except SQLAlchemyError as e:
     logger.error(f"Error processing database operations: {e}")
+finally:
+    engine.dispose()
 
 # Remove temporary file if it exists
-if os.path.exists('update_page.json'):
-    os.remove('update_page.json')
+if os.path.exists('results_df.parquet'):
+    os.remove('results_df.parquet')
