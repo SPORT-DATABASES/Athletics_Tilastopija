@@ -47,25 +47,27 @@ try:
         # Turn off SQL safe updates
         conn.execute(text("SET SQL_SAFE_UPDATES = 0;"))
 
-        # Get total rows before deletion
-        total_rows_before = conn.execute(text("SELECT COUNT(*) FROM Tilastopija_results")).scalar()
-        logger.info(f"Total rows in database before deletion: {total_rows_before}")
+        # Start a transaction
+        with conn.begin() as transaction:
+            # Get total rows before deletion
+            total_rows_before = conn.execute(text("SELECT COUNT(*) FROM Tilastopija_results")).scalar()
+            logger.info(f"Total rows in database before deletion: {total_rows_before}")
 
-        # Delete rows with Start_Date >= min_date
-        delete_query = text("DELETE FROM Tilastopija_results WHERE Start_Date >= :min_date")
-        result = conn.execute(delete_query, {'min_date': min_date_str})
-        rows_deleted = result.rowcount
-        logger.info(f"Rows deleted from database: {rows_deleted}")
+            # Delete rows with Start_Date >= min_date
+            delete_query = text("DELETE FROM Tilastopija_results WHERE Start_Date >= :min_date")
+            result = conn.execute(delete_query, {'min_date': min_date_str})
+            rows_deleted = result.rowcount
+            logger.info(f"Rows deleted from database: {rows_deleted}")
 
-        # Commit the deletion
-        conn.commit()
+            # Commit the deletion
+            transaction.commit()
 
-        # Turn on SQL safe updates
-        conn.execute(text("SET SQL_SAFE_UPDATES = 1;"))
+            # Turn on SQL safe updates
+            conn.execute(text("SET SQL_SAFE_UPDATES = 1;"))
 
-        # Get total rows after deletion
-        total_rows_after = conn.execute(text("SELECT COUNT(*) FROM Tilastopija_results")).scalar()
-        logger.info(f"Total rows in database after deletion: {total_rows_after}")
+            # Get total rows after deletion
+            total_rows_after = conn.execute(text("SELECT COUNT(*) FROM Tilastopija_results")).scalar()
+            logger.info(f"Total rows in database after deletion: {total_rows_after}")
 
 except SQLAlchemyError as e:
     logger.error(f"Error processing database operations: {e}")
@@ -82,18 +84,19 @@ try:
     rows_inserted = 0
 
     with engine.connect() as conn:
-        for start in range(0, total_rows, chunk_size):
-            end = min(start + chunk_size, total_rows)
-            batch = results_df.iloc[start:end]
-            batch.to_sql(name='Tilastopija_results', con=conn, if_exists='append', index=False,method='multi')
-            logger.info(f"Rows {start + 1} to {end} inserted into database")
-            rows_inserted += len(batch)
+        with conn.begin() as transaction:
+            for start in range(0, total_rows, chunk_size):
+                end = min(start + chunk_size, total_rows)
+                batch = results_df.iloc[start:end]
+                batch.to_sql(name='Tilastopija_results', con=conn, if_exists='append', index=False, method='multi')
+                logger.info(f"Rows {start + 1} to {end} inserted into database")
+                rows_inserted += len(batch)
 
-        # Commit the insertion
-        conn.commit()
+            # Commit the insertion
+            transaction.commit()
 
-        total_rows_after_insertion = conn.execute(text("SELECT COUNT(*) FROM Tilastopija_results")).scalar()
-        logger.info(f"Total rows in database after insertion: {total_rows_after_insertion}")
+            total_rows_after_insertion = conn.execute(text("SELECT COUNT(*) FROM Tilastopija_results")).scalar()
+            logger.info(f"Total rows in database after insertion: {total_rows_after_insertion}")
 
     logger.info(f"Total rows inserted into database: {rows_inserted}")
     rows_added = rows_inserted - rows_deleted
@@ -107,3 +110,6 @@ finally:
 # Remove temporary file if it exists
 if os.path.exists('results_df.parquet'):
     os.remove('results_df.parquet')
+
+if os.path.exists('results_df.csv'):
+    os.remove('results_df.csv')
