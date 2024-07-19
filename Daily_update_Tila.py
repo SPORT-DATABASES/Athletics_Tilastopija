@@ -142,8 +142,6 @@ load_dotenv()
 
 # Now deleting and inserting.  I needed conn.commit()
 
-
-
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -161,10 +159,6 @@ logger.info(f"Connecting to database at {host}:{port}, database: {database}, use
 # Database engine setup
 engine = create_engine(f'mysql+pymysql://{user}:{password}@{host}:{port}/{database}', 
                        connect_args={'ssl': {'ca': ca_cert_path}})
-
-# Sample DataFrame setup
-# Assuming `results_df` is your DataFrame
-results_df = pd.DataFrame()  # Replace with your actual DataFrame loading logic
 
 # Rename columns
 results_df = results_df.rename(columns={
