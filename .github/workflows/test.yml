@@ -1,0 +1,59 @@
+name: Selenium Wire Test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      xvfb:
+        image: selenium/standalone-chrome
+        options: --shm-size 2g
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.9'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install selenium-wire
+
+    - name: Test network access
+      run: |
+        python -c "
+        import requests
+        response = requests.get('https://www.tilastopaja.info')
+        print(f'Network access test: {response.status_code}')"
+
+    - name: Run Selenium Wire script
+      run: |
+        xvfb-run python -c "
+        from seleniumwire import webdriver
+        from selenium.webdriver.common.by import By
+        from selenium.webdriver.common.keys import Keys
+        
+        options = webdriver.ChromeOptions()
+        driver = webdriver.Chrome(seleniumwire_options={}, options=options)
+        
+        driver.get('https://www.tilastopaja.info/beta/users/login.php')
+        driver.find_element(By.NAME, 'username').send_keys('aspiretf')
+        driver.find_element(By.NAME, 'password').send_keys('Qcus4rGA9RaK', Keys.RETURN)
+        driver.implicitly_wait(10)
+        
+        driver.get('https://www.tilastopaja.info/api/competitions/latest?&major=true&country=world')
+        
+        for request in driver.requests:
+            if request.response and 'authorization' in request.headers:
+                auth_token = request.headers['authorization']
+                print(f'Authorization token found: {auth_token}')
+        
+        driver.quit()
+        "
