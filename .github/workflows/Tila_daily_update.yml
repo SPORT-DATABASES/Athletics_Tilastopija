@@ -1,4 +1,4 @@
-name: Selenium Wire Test
+name: Tila Daily update
 
 on:
   workflow_dispatch:
