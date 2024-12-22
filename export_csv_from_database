@@ -1,0 +1,123 @@
+import os
+import pandas as pd
+from sqlalchemy import create_engine
+from sqlalchemy.sql import text
+from dotenv import load_dotenv
+import logging
+import shutil
+import zipfile
+
+# Load environment variables
+load_dotenv()
+
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Database connection details
+host = 'sportsdb-sports-database-for-web-scrapes.g.aivencloud.com'
+port = 16439
+user = 'avnadmin'
+password = os.getenv('DB_PASSWORD')  # Password from .env file
+database = 'defaultdb'
+
+# Folders to store the results
+men_folder = 'Tila_men'
+women_folder = 'Tila_women'
+
+# Create directories if they don't exist
+os.makedirs(men_folder, exist_ok=True)
+os.makedirs(women_folder, exist_ok=True)
+
+# MySQL database connection string (using pymysql or mysqlclient)
+db_url = f'mysql+pymysql://{user}:{password}@{host}:{port}/{database}?charset=utf8mb4'
+engine = create_engine(db_url)
+
+def export_table_in_chunks(table_name, folder_name, chunk_size=100000):
+    """
+    Export data from the SQL table in chunks to CSV files.
+    Args:
+        table_name (str): The name of the SQL table to export.
+        folder_name (str): The folder where the CSV files will be saved.
+        chunk_size (int): The number of rows per chunk.
+    """
+    offset = 0
+    chunk_num = 0
+    try:
+        with engine.connect() as conn:
+            while True:
+                query = text(f"SELECT * FROM {table_name} LIMIT :limit OFFSET :offset")
+                data_chunk = pd.read_sql(query, conn, params={"limit": chunk_size, "offset": offset})
+
+                # Break if no more data
+                if data_chunk.empty:
+                    break
+
+                # Save chunk to CSV
+                chunk_filename = os.path.join(folder_name, f"{table_name}_chunk_{chunk_num}.csv")
+                data_chunk.to_csv(chunk_filename, index=False)
+
+                logger.info(f"Exported {len(data_chunk)} rows to {chunk_filename}")
+
+                # Update offset and chunk number
+                offset += chunk_size
+                chunk_num += 1
+
+    except Exception as e:
+        logger.error(f"Error while exporting {table_name}: {str(e)}")
+
+# Exporting both men and women results
+export_table_in_chunks('tilastopija_men_results', men_folder)
+export_table_in_chunks('tilastopija_women_results', women_folder)
+
+logger.info("Data export completed.")
+
+##################################################
+
+def combine_csv_files_memory_efficient_and_zip(folder_name, output_file):
+    """
+    Combines all CSV files in the specified folder into a single CSV file 
+    and compresses the result into a zip file.
+    
+    Args:
+        folder_name (str): The folder containing the CSV chunk files.
+        output_file (str): The output file path for the combined CSV file.
+    """
+    temp_file = output_file + '.csv'  # Temporary CSV file before zipping
+
+    # List all CSV files in the folder
+    csv_files = [os.path.join(folder_name, f) for f in os.listdir(folder_name) if f.endswith('.csv')]
+
+    # Process the first file separately to include the header
+    with open(temp_file, 'w', encoding='utf-16') as outfile:
+        # Open the first CSV file and write its content including the header
+        with open(csv_files[0], 'r', encoding='utf-16') as infile:
+            outfile.write(infile.read())
+
+    # Process the remaining files (without headers)
+    for file in csv_files[1:]:
+        with open(file, 'r', encoding='utf-16') as infile:
+            # Skip the header row and append the rest of the file to the output
+            infile.readline()  # Skip header
+            with open(temp_file, 'a', encoding='utf-16') as outfile:
+                outfile.write(infile.read())
+
+    print(f"Combined CSV saved to {temp_file}")
+
+    # Zip the CSV file using zipfile module
+    zip_filename = output_file + '.zip'
+    with zipfile.ZipFile(zip_filename, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        zipf.write(temp_file, os.path.basename(temp_file))  # Use zipfile instead of shutil
+    os.remove(temp_file)  # Remove the temporary CSV file after zipping
+
+    print(f"Compressed CSV saved to {zip_filename}")
+
+# Folder paths and output file names
+men_folder = 'Tila_men'
+women_folder = 'Tila_women'
+men_output_file = 'tilastopija_men_results_combined'
+women_output_file = 'tilastopija_women_results_combined'
+
+# Combine all the CSV files for both men and women results and zip them
+combine_csv_files_memory_efficient_and_zip(men_folder, men_output_file)
+combine_csv_files_memory_efficient_and_zip(women_folder, women_output_file)
