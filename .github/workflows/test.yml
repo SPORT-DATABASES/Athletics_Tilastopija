@@ -22,16 +22,12 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y xvfb libssl-dev
+
     - name: Install Python dependencies
       run: |
         python -m pip install --upgrade pip
         pip install selenium==4.0.0 selenium-wire==4.0.0 mitmproxy==7.0.0 requests packaging blinker pandas
-    - name: Test network access
-      run: |
-        python -c "
-        import requests
-        response = requests.get('https://www.tilastopaja.info')
-        print(f'Network access test: {response.status_code}')"
+
     - name: Run Selenium Wire script
       run: |
         xvfb-run -a python -c "
@@ -70,3 +66,19 @@ jobs:
         else:
             print('Authorization token not found.')
         "
+
+    - name: Configure Git
+      run: |
+        git config --global user.name "github-actions[bot]"
+        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+    - name: Add and Commit auth_token.csv
+      run: |
+        git add auth_token.csv
+        git commit -m "Update auth_token.csv with latest authorization token"
+
+    - name: Push changes
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        git push origin HEAD
