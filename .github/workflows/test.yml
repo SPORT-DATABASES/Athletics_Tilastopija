@@ -28,6 +28,11 @@ jobs:
         python -m pip install --upgrade pip
         pip install selenium==4.0.0 selenium-wire==4.0.0 mitmproxy==7.0.0 requests packaging blinker pandas
 
+    - name: Ensure clean slate
+      run: |
+        rm -f ./auth_token.csv
+        echo "Previous auth_token.csv deleted (if it existed)."
+
     - name: Run Selenium Wire script
       run: |
         xvfb-run -a python -c "
@@ -66,15 +71,6 @@ jobs:
         ls -l
         cat ./auth_token.csv || echo "File does not exist or is empty."
 
-    - name: Ensure file creation
-      run: |
-        if [ -f ./auth_token.csv ] && [ -s ./auth_token.csv ]; then
-          echo "auth_token.csv exists and has content."
-        else
-          echo "auth_token.csv does not exist or is empty."
-          exit 1
-        fi
-
     - name: Configure Git
       run: |
         git config --global user.name "github-actions[bot]"
@@ -90,7 +86,7 @@ jobs:
         if git diff --cached --quiet; then
           echo "No changes to commit."
         else
-          git commit -m "Update auth_token.csv with latest authorization token"
+          git commit -m "Replace auth_token.csv with latest authorization token"
         fi
 
     - name: Push changes
