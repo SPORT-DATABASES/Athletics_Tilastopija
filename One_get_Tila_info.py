@@ -1,131 +1,179 @@
-from seleniumwire import webdriver
+from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
-import requests
-import pandas as pd
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from tqdm import tqdm
+import pandas as pd
+import subprocess
 import json
 import os
-import logging
-from sqlalchemy import create_engine
-from sqlalchemy.sql import text
-from sqlalchemy.exc import SQLAlchemyError
-from dotenv import load_dotenv
+from tqdm import tqdm
 
-def get_cookies_and_auth():
-    options = webdriver.ChromeOptions()
-    driver = webdriver.Chrome(options=options)
+# Step 1: Selenium setup for logging in and retrieving cookies
+options = webdriver.ChromeOptions()
+options.headless = False  # Set to True for headless mode
+options.add_argument('--no-sandbox')
+options.add_argument('--disable-dev-shm-usage')
 
-    driver.get('https://www.tilastopaja.info/beta/users/login.php')
-    driver.find_element(By.NAME, 'username').send_keys('aspiretf')
-    driver.find_element(By.NAME, 'password').send_keys('Qcus4rGA9RaK', Keys.RETURN)
-    driver.implicitly_wait(10)
+print("Logging in to retrieve cookies...")
+driver = webdriver.Chrome(options=options)
+driver.get('https://www.tilastopaja.info/beta/users/login.php')
 
-    driver.get('https://www.tilastopaja.info/api/competitions/latest?&major=true&country=world')
-    
-    for request in driver.requests:
-        if request.response and 'authorization' in request.headers:
-            auth_token = request.headers['authorization']
-    
-    cookies = driver.get_cookies()
-    driver.quit()
+# Wait for username field
+WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.NAME, 'username')))
 
-    session = requests.Session()
-    for cookie in cookies:
-        session.cookies.set(cookie['name'], cookie['value'])
-    
-    return session, auth_token
+# Input credentials
+driver.find_element(By.NAME, 'username').send_keys('aspiretf')
+driver.find_element(By.NAME, 'password').send_keys('Qcus4rGA9RaK', Keys.RETURN)
+driver.implicitly_wait(10)
 
-def fetch_latest_results(session, auth_token):
-    url = 'https://www.tilastopaja.info/api/competitions/all'
+# Wait for cookies to be available after login
+WebDriverWait(driver, 10).until(lambda d: len(d.get_cookies()) > 0)
+
+# Extract cookies
+cookies = driver.get_cookies()
+cookie_dict = {cookie['name']: cookie['value'] for cookie in cookies}
+driver.quit()
+
+# Load the token from the CSV file
+df = pd.read_csv('auth_token.csv')
+auth_token = df['Authorization Token'].iloc[0]
+
+print("Cookies and session established successfully.")
+
+# Step 2: Function to make requests with `curl`
+def fetch_with_curl(url, headers, cookies):
+    # Construct the curl command
+    command = [
+        "curl", "-s", "-X", "GET", url,  # Silent mode, GET method
+        "-H", f"Authorization: {headers['Authorization']}",
+        "-H", f"Accept: {headers['Accept']}",
+        "-H", f"User-Agent: {headers['User-Agent']}",
+        "-H", f"Referer: {headers['Referer']}",
+        "-H", f"Cookie: {'; '.join([f'{key}={value}' for key, value in cookies.items()])}"
+    ]
+
+    # Run the curl command and capture output
+    result = subprocess.run(command, capture_output=True, text=True)
+
+    if result.returncode != 0:
+        print(f"Error executing curl: {result.stderr}")
+        return None
+
+    return result.stdout
+
+# Step 3: Fetch latest competition IDs
+def fetch_competition_ids():
+    url = "https://www.tilastopaja.info/api/competitions/all"
     headers = {
-        'Accept': 'application/json, text/plain, */*',
-        'Authorization': auth_token,
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
+        "Authorization": auth_token,
+        "Accept": "application/json, text/plain, */*",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+        "Referer": "https://www.tilastopaja.info/beta/"
     }
-    
-    response = session.get(url, headers=headers)
-    response.raise_for_status()
-    data = response.json()
-    
-    with open('update_page.json', 'w') as f:
-        json.dump(data, f, indent=4)
-    
-    competition_ids = [comp['competitionId'] for div in data.get('divs', []) for table in div.get('tables', []) for comp in table.get('body', [])]
-    return competition_ids
 
-def fetch_competition_data(competition_id, session, auth_token):
+    response_text = fetch_with_curl(url, headers, cookie_dict)
+    if not response_text:
+        print("Failed to fetch competition IDs.")
+        return []
+
     try:
-        url = f'https://www.tilastopaja.info/api/results/{competition_id}'
-        headers = {
-            'Authorization': auth_token,
-            'Referer': f'https://www.tilastopaja.info/beta/results/{competition_id}'
-        }
-        
-        response = session.get(url, headers=headers)
-        response.raise_for_status()
-        data = response.json()
-        
-        results = []
-        if 'genders' in data:
-            for gender in data['genders']:
-                for agegroup in gender.get('agegroups', []):
-                    for event in agegroup.get('events', []):
-                        for round_ in event.get('rounds', []):
-                            for heat in round_.get('heats', []):
-                                for result in heat.get('results', []):
+        data = json.loads(response_text)
+        with open("update_page.json", "w") as f:
+            json.dump(data, f, indent=4)
+
+        competition_ids = [
+            comp["competitionId"]
+            for div in data.get("divs", [])
+            for table in div.get("tables", [])
+            for comp in table.get("body", [])
+        ]
+        print(f"Fetched competition IDs: {competition_ids}")
+        return competition_ids
+    except json.JSONDecodeError as e:
+        print(f"Error decoding JSON: {e}")
+        return []
+
+# Step 4: Fetch competition data in parallel
+def fetch_competition_data_parallel(competition_ids):
+    def fetch_single_competition(competition_id):
+        try:
+            url = f"https://www.tilastopaja.info/api/results/{competition_id}"
+            headers = {
+                "Authorization": auth_token,
+                "Accept": "application/json, text/plain, */*",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+                "Referer": f"https://www.tilastopaja.info/beta/results/{competition_id}",
+            }
+
+            response_text = fetch_with_curl(url, headers, cookie_dict)
+            if not response_text:
+                print(f"Failed to fetch competition data for ID {competition_id}.")
+                return pd.DataFrame()
+
+            try:
+                data = json.loads(response_text)
+            except json.JSONDecodeError as e:
+                print(f"Error decoding JSON for competition ID {competition_id}: {e}")
+                return pd.DataFrame()
+
+            # Initialize a list for results
+            results = []
+            genders = data.get("genders", [])
+            for gender in genders:
+                gender_title = gender.get("title", "")
+                for agegroup in gender.get("agegroups", []):
+                    agegroup_title = agegroup.get("title", "")
+                    for event in agegroup.get("events", []):
+                        event_title = event.get("title", "")
+                        for round_ in event.get("rounds", []):
+                            round_title = round_.get("title", "")
+                            for heat in round_.get("heats", []):
+                                heat_title = heat.get("title", "")
+                                for result in heat.get("results", []):
                                     result_data = {
-                                        'competitionId': data.get('competitionId'),
-                                        'competitionLong': data.get('competitionLong'),
-                                        'startDate': data.get('startDate'),
-                                        'endDate': data.get('endDate'),
-                                        'venue': data.get('venue'),
-                                        'venueCountry': data.get('venueCountry'),
-                                        'venueCountryFull': data.get('venueCountryFull'),
-                                        'stadion': data.get('stadion'),
-                                        'ranking': data.get('ranking'),
-                                        'competitionGroup': data.get('competitionGroup'),
-                                        'gender': gender.get('title'),
-                                        'agegroup': agegroup.get('title'),
-                                        'event': event.get('title'),
-                                        'round': round_.get('title'),
-                                        'heat': heat.get('title'),
-                                        'athleteId': result.get('athleteId'),
-                                        'country': result.get('country'),
-                                        'countryFull': result.get('countryFull'),
-                                        'pos': result.get('pos'),
-                                        'result': result.get('result'),
-                                        'name': result.get('name'),
-                                        'dateOfBirth': result.get('dateOfBirth'),
-                                        'personalBest': result.get('personalBest')
+                                        "Competition_ID": data.get("competitionId", ""),
+                                        "Competition": data.get("competitionLong", ""),
+                                        "Start_Date": data.get("startDate", ""),
+                                        "End_Date": data.get("endDate", ""),
+                                        "Venue": data.get("venue", ""),
+                                        "Venue_Country": data.get("venueCountryFull", ""),
+                                        "Stadium": data.get("stadion", ""),
+                                        "Gender": gender_title,
+                                        "Age_Group": agegroup_title,
+                                        "Event": event_title,
+                                        "Round": round_title,
+                                        "Heat": heat_title,
+                                        "Athlete_ID": result.get("athleteId", ""),
+                                        "Country": result.get("countryFull", ""),
+                                        "Position": result.get("pos", ""),
+                                        "Result": result.get("result", ""),
+                                        "Name": result.get("name", ""),
+                                        "Date_of_Birth": result.get("dateOfBirth", ""),
+                                        "Personal_Best": result.get("personalBest", ""),
                                     }
                                     results.append(result_data)
-        return pd.DataFrame(results)
-    except Exception as e:
-        print(f"Error fetching data for competition ID {competition_id}: {e}")
-        return pd.DataFrame()
 
-def parallel_fetch_competition_data(competition_ids, session, auth_token):
+            return pd.DataFrame(results)
+        except Exception as e:
+            print(f"Unexpected error fetching data for competition ID {competition_id}: {e}")
+            return pd.DataFrame()
+
+    # Use ThreadPoolExecutor for parallel fetching
     all_results = []
     with ThreadPoolExecutor(max_workers=20) as executor:
-        futures = {executor.submit(fetch_competition_data, comp_id, session, auth_token): comp_id for comp_id in competition_ids}
-        for future in tqdm(as_completed(futures), total=len(futures), desc="Fetching competition data"):
-            try:
-                result = future.result()
-                if not result.empty:
-                    all_results.append(result)
-            except Exception as e:
-                print(f"Error processing competition ID: {e}")
-    if all_results:
-        return pd.concat(all_results, ignore_index=True)
-    else:
-        return pd.DataFrame()
+        futures = {executor.submit(fetch_single_competition, comp_id): comp_id for comp_id in competition_ids}
+        for future in tqdm(as_completed(futures), total=len(futures), desc="Fetching competition data in parallel"):
+            result = future.result()
+            if not result.empty:
+                all_results.append(result)
 
-# Main execution
-session, auth_token = get_cookies_and_auth()
-competition_ids = fetch_latest_results(session, auth_token)
-results_df = parallel_fetch_competition_data(competition_ids, session, auth_token)
+    return pd.concat(all_results, ignore_index=True) if all_results else pd.DataFrame()
+
+# Main script
+competition_ids = fetch_competition_ids()
+results_df = fetch_competition_data_parallel(competition_ids)
 
 # Rename columns
 results_df = results_df.rename(columns={
@@ -153,9 +201,6 @@ results_df = results_df.rename(columns={
     'dateOfBirth': 'Date_of_Birth',
     'personalBest': 'Personal_Best'
 })
-
-# Filtering out invalid dates
-results_df = results_df[(results_df['Start_Date'] != '0000-00-00') & (results_df['End_Date'] != '0000-00-00')]
 
 # Parsing date columns
 results_df['Start_Date'] = pd.to_datetime(results_df['Start_Date'], errors='coerce')
