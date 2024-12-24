@@ -193,11 +193,11 @@ results_df = results_df.rename(columns={
     'round': 'Round',
     'heat': 'Heat',
     'athleteId': 'Athlete_ID',
-    'country': 'Athlete_CountryCode',
+    'Country': 'Athlete_CountryCode',
     'countryFull': 'Athlete_Country',
     'pos': 'Position',
     'result': 'Result',
-    'name': 'Athlete_Name',
+    'Name': 'Athlete_Name',
     'dateOfBirth': 'Date_of_Birth',
     'personalBest': 'Personal_Best'
 })
