@@ -18,20 +18,12 @@ jobs:
       with:
         python-version: '3.9'
 
-    - name: Install system dependencies
+    - name: Install dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y xvfb libssl-dev
-
-    - name: Install Python dependencies
-      run: |
         python -m pip install --upgrade pip
-        pip install selenium==4.0.0 selenium-wire==4.0.0 mitmproxy==7.0.0 requests packaging blinker pandas
-
-    - name: Ensure clean slate
-      run: |
-        rm -f ./auth_token.csv
-        echo "Previous auth_token.csv deleted (if it existed)."
+        pip install selenium==4.0.0 selenium-wire==4.0.0 mitmproxy==7.0.0 pandas
 
     - name: Run Selenium Wire script
       run: |
@@ -41,13 +33,18 @@ jobs:
         from seleniumwire import webdriver
         from selenium.webdriver.common.by import By
         from selenium.webdriver.common.keys import Keys
+
+        # Setup Selenium WebDriver
         options = webdriver.ChromeOptions()
         driver = webdriver.Chrome(seleniumwire_options={}, options=options)
+
+        # Perform login and get the token
         driver.get('https://www.tilastopaja.info/beta/users/login.php')
         driver.find_element(By.NAME, 'username').send_keys('aspiretf')
         driver.find_element(By.NAME, 'password').send_keys('Qcus4rGA9RaK', Keys.RETURN)
         driver.implicitly_wait(10)
         driver.get('https://www.tilastopaja.info/api/competitions/latest?&major=true&country=world')
+
         auth_token = None
         for request in driver.requests:
             if request.response and 'authorization' in request.headers:
@@ -55,42 +52,20 @@ jobs:
                 print(f'Authorization token found: {auth_token}')
                 break
         driver.quit()
+
+        # Save the token to a CSV
         if auth_token:
-            # Save the token in a CSV file
-            token_data = {'Authorization Token': [auth_token]}
-            df = pd.DataFrame(token_data)
-            output_path = './auth_token.csv'
-            df.to_csv(output_path, index=False)
-            print(f'Token saved to {output_path}')
+            df = pd.DataFrame({'Authorization Token': [auth_token]})
+            df.to_csv('./auth_token.csv', index=False)
+            print('Authorization token saved to auth_token.csv.')
         else:
             print('Authorization token not found.')
         "
 
-    - name: Debug file creation
-      run: |
-        ls -l
-        cat ./auth_token.csv || echo "File does not exist or is empty."
-
-    - name: Configure Git
+    - name: Push updated auth_token.csv
       run: |
         git config --global user.name "github-actions[bot]"
         git config --global user.email "github-actions[bot]@users.noreply.github.com"
-
-    - name: Stage changes
-      run: |
-        git add ./auth_token.csv || echo "No changes detected for auth_token.csv."
-        git status
-
-    - name: Commit changes
-      run: |
-        if git diff --cached --quiet; then
-          echo "No changes to commit."
-        else
-          git commit -m "Replace auth_token.csv with latest authorization token"
-        fi
-
-    - name: Push changes
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: |
+        git add ./auth_token.csv
+        git commit -m "Update auth_token.csv with latest token" || echo "No changes to commit."
         git push origin HEAD
